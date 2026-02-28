@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Headache Tracker Pro</title>
+    
+    <!-- Libraries -->
+    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <style>
+        :root { --bg: #f4f7f6; --card: #ffffff; --primary: #2d3436; --accent: #0984e3; --tension: #e67e22; --text: #2d3436; }
+        @media (prefers-color-scheme: dark) {
+            :root { --bg: #1a1a1a; --card: #2d2d2d; --primary: #f0f0f0; --accent: #74b9ff; --tension: #ffb142; --text: #f0f0f0; }
+        }
+        body { font-family: -apple-system, system-ui; background: var(--bg); color: var(--text); margin: 0; padding-bottom: 90px; }
+        .container { padding: 20px; max-width: 600px; margin: auto; }
+        .card { background: var(--card); padding: 20px; border-radius: 18px; box-shadow: 0 8px 15px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        h2 { font-size: 1rem; margin-bottom: 12px; opacity: 0.8; text-transform: uppercase; letter-spacing: 1px; }
+        
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(85px, 1fr)); gap: 10px; margin-bottom: 20px; }
+        button { border: none; padding: 16px 10px; border-radius: 12px; background: #dfe6e9; color: #2d3436; font-weight: 700; cursor: pointer; transition: 0.2s; -webkit-tap-highlight-color: transparent; }
+        button.active { background: var(--accent); color: white; transform: scale(0.98); }
+        .btn-tension.active { background: var(--tension); }
+        
+        .btn-main { background: var(--accent); color: white; width: 100%; font-size: 1.1rem; padding: 18px; border-radius: 15px; border: none; font-weight: bold; }
+        .history-item { display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid rgba(0,0,0,0.1); }
+        
+        /* Tabs */
+        .tab-bar { position: fixed; bottom: 0; width: 100%; background: var(--card); display: flex; border-top: 1px solid rgba(0,0,0,0.1); padding-bottom: 30px; }
+        .tab-item { flex: 1; text-align: center; padding: 15px; font-size: 0.9rem; opacity: 0.4; font-weight: bold; }
+        .tab-item.active { opacity: 1; color: var(--accent); }
+        
+        /* Hidden PDF area */
+        #pdf-report-area { position: absolute; left: -9999px; width: 800px; background: white; color: black; padding: 40px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; font-size: 12px; }
+        th { background: #f2f2f2; }
+        
+        .page { display: none; }
+        .page.active { display: block; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- PAGE 1: LOGGING -->
+    <div id="logPage" class="page active">
+        <h1>Log Headache</h1>
+        <div class="card">
+            <h2>Type</h2>
+            <div class="grid">
+                <button onclick="setVal('type', 'Migraine', this)">Migraine</button>
+                <button id="btnTension" onclick="setVal('type', 'Tension', this)" class="btn-tension">Tension</button>
+            </div>
+
+            <h2>Severity (1-5)</h2>
+            <div class="grid">
+                <button onclick="setVal('sev', 1, this)">1</button>
+                <button onclick="setVal('sev', 2, this)">2</button>
+                <button onclick="setVal('sev', 3, this)">3</button>
+                <button onclick="setVal('sev', 4, this)">4</button>
+                <button onclick="setVal('sev', 5, this)">5</button>
+            </div>
+
+            <h2>Medication (Multi-select)</h2>
+            <div class="grid" id="medGrid">
+                <button onclick="toggleMed('Zomig', this)">Zomig</button>
+                <button onclick="toggleMed('Solpadeine', this)">Solpadeine</button>
+                <button onclick="toggleMed('Paracetamol', this)">Paracetamol</button>
+                <button onclick="toggleMed('None', this)">None</button>
+            </div>
+
+            <button class="btn-main" onclick="saveLog()">Save Status</button>
+        </div>
+    </div>
+
+    <!-- PAGE 2: HISTORY -->
+    <div id="historyPage" class="page">
+        <h1>History</h1>
+        <div class="card" id="historyList">
+            <p>No entries yet. Start logging!</p>
+        </div>
+    </div>
+
+    <!-- PAGE 3: REPORT -->
+    <div id="reportPage" class="page">
+        <h1>Doctor's Report</h1>
+        <div class="card">
+            <canvas id="uiChart"></canvas>
+        </div>
+        <button class="btn-main" onclick="generatePDF()">Export PDF for Doctor</button>
+    </div>
+</div>
+
+<!-- HIDDEN PDF CONTENT AREA -->
+<div id="pdf-report-area">
+    <h1>Headache Clinical Report</h1>
+    <p>Last 30 Days Summary</p>
+    <div style="height: 300px;"><canvas id="pdfChart"></canvas></div>
+    <table id="pdfTable">
+        <thead>
+            <tr>
+                <th>DATE</th>
+                <th>TYPE</th>
+                <th>SEVERITY</th>
+                <th>MEDICATION</th>
+            </tr>
+        </thead>
+        <tbody id="pdfTableBody"></tbody>
+    </table>
+</div>
+
+<nav class="tab-bar">
+    <div class="tab-item active" onclick="nav('logPage', this)">Log</div>
+    <div class="tab-item" onclick="nav('historyPage', this)">History</div>
+    <div class="tab-item" onclick="nav('reportPage', this)">Report</div>
+</nav>
+
+<script>
+    // 1. DATABASE SETUP
+    const db = new Dexie("HeadacheTrackerDB");
+    db.version(1).stores({ logs: '++id, date, type, sev, med' });
+
+    let entry = { type: '', sev: 0, med: [] };
+
+    // 2. LOGGING LOGIC
+    function setVal(f, v, el) {
+        entry[f] = v;
+        el.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        el.classList.add('active');
+    }
+
+    function toggleMed(v, el) {
+        if (v === 'None') {
+            entry.med = ['None'];
+            el.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+        } else {
+            entry.med = entry.med.filter(m => m !== 'None');
+            const noneBtn = Array.from(el.parentElement.querySelectorAll('button')).find(b => b.innerText === 'None');
+            noneBtn.classList.remove('active');
+            
+            if (entry.med.includes(v)) {
+                entry.med = entry.med.filter(m => m !== v);
+                el.classList.remove('active');
+            } else {
+                entry.med.push(v);
+                el.classList.add('active');
+            }
+        }
+    }
+
+    async function saveLog() {
+        if (!entry.type || !entry.sev) return alert("Please select Type and Severity");
+        await db.logs.add({ ...entry, date: new Date() });
+        alert("Saved Successfully");
+        location.reload(); // Force clear and refresh for UI consistency
+    }
+
+    // 3. NAVIGATION & HISTORY FETCHING
+    function nav(id, el) {
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+        el.classList.add('active');
+        
+        if (id === 'historyPage') renderHistory();
+        if (id === 'reportPage') renderCharts();
+    }
+
+    async function renderHistory() {
+        const logs = await db.logs.orderBy('date').reverse().toArray();
+        const container = document.getElementById('historyList');
+        if (logs.length === 0) return;
+        
+        container.innerHTML = logs.map(l => `
+            <div class="history-item">
+                <div>
+                    <strong>${new Date(l.date).toLocaleDateString()}</strong> - ${l.type}<br>
+                    <small>Meds: ${l.med.join(', ')}</small>
+                </div>
+                <div style="font-weight:bold; color:var(--accent)">Sev: ${l.sev}</div>
+                <button onclick="deleteEntry(${l.id})" style="padding:5px; background:none; color:red">✕</button>
+            </div>
+        `).join('');
+    }
+
+    async function deleteEntry(id) {
+        if (confirm("Delete this entry?")) {
+            await db.logs.delete(id);
+            renderHistory();
+        }
+    }
+
+    // 4. CHARTING & PDF
+    let activeCharts = [];
+    async function renderCharts(canvasId = 'uiChart') {
+        const logs = await db.logs.orderBy('date').limit(30).toArray();
+        const dates = logs.map(l => new Date(l.date).toLocaleDateString());
+        
+        const migraines = logs.map(l => l.type === 'Migraine' ? l.sev : null);
+        const tensions = logs.map(l => l.type === 'Tension' ? l.sev : null);
+
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        
+        // Clear previous chart if exists
+        activeCharts.forEach(c => { if(c.canvas.id === canvasId) c.destroy(); });
+
+        const newChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: dates,
+                datasets: [
+                    { label: 'Migraine', data: migraines, borderColor: '#0984e3', spanGaps: true, tension: 0.3 },
+                    { label: 'Tension', data: tensions, borderColor: '#e67e22', spanGaps: true, tension: 0.3 }
+                ]
+            },
+            options: { scales: { y: { min: 0, max: 5 } } }
+        });
+        activeCharts.push(newChart);
+    }
+
+    async function generatePDF() {
+        // Prepare hidden PDF area
+        const logs = await db.logs.orderBy('date').reverse().toArray();
+        const tableBody = document.getElementById('pdfTableBody');
+        tableBody.innerHTML = logs.map(l => `
+            <tr>
+                <td>${new Date(l.date).toLocaleDateString()}</td>
+                <td>${l.type}</td>
+                <td>${l.sev}</td>
+                <td>${l.med.join(', ')}</td>
+            </tr>
+        `).join('');
+
+        await renderCharts('pdfChart');
+
+        // Capture and Download
+        const area = document.getElementById('pdf-report-area');
+        const canvas = await html2canvas(area, { scale: 2 });
+        const imgData = canvas.toDataURL('image/png');
+        
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF('p', 'mm', 'a4');
+        const imgProps = doc.getImageProperties(imgData);
+        const pdfWidth = doc.internal.pageSize.getWidth();
+        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+        
+        doc.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+        doc.save(`Headache_Report_${new Date().toLocaleDateString()}.pdf`);
+    }
+
+</script>
+</body>
+</html>
