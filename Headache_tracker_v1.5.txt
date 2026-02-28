@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>HeadacheTrack</title>
+    
+    <!-- Libraries -->
+    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <style>
+        :root { --bg: #f8f9fa; --card: #ffffff; --primary: #4a90e2; --text: #2d3436; }
+        @media (prefers-color-scheme: dark) {
+            :root { --bg: #121212; --card: #1e1e1e; --primary: #74b9ff; --text: #f0f0f0; }
+        }
+        body { font-family: -apple-system, system-ui; background: var(--bg); color: var(--text); margin: 0; padding-bottom: 80px; }
+        .container { padding: 20px; max-width: 500px; margin: auto; }
+        .card { background: var(--card); padding: 20px; border-radius: 20px; box-shadow: 0 10px 20px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        
+        /* UI Elements */
+        h2 { font-weight: 600; margin-bottom: 10px; font-size: 1.2rem; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 10px; margin-bottom: 20px; }
+        button { border: none; padding: 15px 10px; border-radius: 12px; background: #e9ecef; color: #444; font-weight: 600; transition: 0.3s; }
+        button.active { background: var(--primary); color: white; }
+        .btn-save { background: var(--primary); color: white; width: 100%; font-size: 1.1rem; padding: 18px; margin-top: 10px; }
+        
+        /* Tabs */
+        .tab-bar { position: fixed; bottom: 0; width: 100%; background: var(--card); display: flex; border-top: 1px solid #ddd; padding-bottom: 20px; }
+        .tab-item { flex: 1; text-align: center; padding: 15px; font-size: 0.8rem; opacity: 0.6; }
+        .tab-item.active { opacity: 1; color: var(--primary); font-weight: bold; }
+        
+        .page { display: none; }
+        .page.active { display: block; }
+        
+        #chartContainer { width: 100%; height: 250px; margin-top: 20px; }
+        .history-item { border-bottom: 1px solid #eee; padding: 10px 0; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- PAGE 1: LOGGING -->
+    <div id="logPage" class="page active">
+        <h1>New Entry</h1>
+        <div class="card">
+            <h2>Type</h2>
+            <div class="grid" id="typeGrid">
+                <button onclick="setVal('type', 'Migraine', this)">Migraine</button>
+                <button onclick="setVal('type', 'Tension', this)">Tension</button>
+            </div>
+
+            <h2>Severity (1-5)</h2>
+            <div class="grid" id="sevGrid">
+                <button onclick="setVal('sev', 1, this)">1</button>
+                <button onclick="setVal('sev', 2, this)">2</button>
+                <button onclick="setVal('sev', 3, this)">3</button>
+                <button onclick="setVal('sev', 4, this)">4</button>
+                <button onclick="setVal('sev', 5, this)">5</button>
+            </div>
+
+            <h2>Medication</h2>
+            <div class="grid" id="medGrid">
+                <button onclick="setVal('med', 'Zomig', this)">Zomig</button>
+                <button onclick="setVal('med', 'Solpadeine', this)">Solpadeine</button>
+                <button onclick="setVal('med', 'Paracetamol', this)">Paracetamol</button>
+                <button onclick="setVal('med', 'None', this)">None</button>
+            </div>
+
+            <button class="btn-save" onclick="saveToDB()">Log Headache</button>
+        </div>
+    </div>
+
+    <!-- PAGE 2: REPORT & CHART -->
+    <div id="reportPage" class="page">
+        <h1>Monthly Report</h1>
+        <div class="card" id="pdfContent">
+            <canvas id="headacheChart"></canvas>
+            <div id="historySummary" style="margin-top:20px;"></div>
+        </div>
+        <button class="btn-save" onclick="exportPDF()">Download PDF Report</button>
+    </div>
+</div>
+
+<!-- Bottom Navigation -->
+<div class="tab-bar">
+    <div class="tab-item active" onclick="showPage('logPage', this)">Log</div>
+    <div class="tab-item" onclick="showPage('reportPage', this)">Report</div>
+</div>
+
+<script>
+    // 1. DATABASE SETUP (IndexedDB)
+    const db = new Dexie("HeadacheDB");
+    db.version(1).stores({ logs: '++id, date, type, sev, med' });
+
+    let currentEntry = { type: '', sev: 0, med: '', date: null };
+
+    // 2. UI LOGIC
+    function setVal(field, val, btn) {
+        currentEntry[field] = val;
+        const parent = btn.parentElement;
+        parent.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    }
+
+    async function saveToDB() {
+        if (!currentEntry.type || !currentEntry.sev) return alert("Select Type & Severity");
+        currentEntry.date = new Date();
+        await db.logs.add({...currentEntry});
+        alert("Logged successfully!");
+        resetForm();
+    }
+
+    function resetForm() {
+        currentEntry = { type: '', sev: 0, med: '', date: null };
+        document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    }
+
+    function showPage(pageId, tab) {
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
+        document.getElementById(pageId).classList.add('active');
+        tab.classList.add('active');
+        if(pageId === 'reportPage') renderReport();
+    }
+
+    // 3. CHARTING & REPORTING
+    let myChart = null;
+    async function renderReport() {
+        const logs = await db.logs.orderBy('date').reverse().limit(30).toArray();
+        const ctx = document.getElementById('headacheChart').getContext('2d');
+        
+        if (myChart) myChart.destroy();
+        
+        myChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: logs.map(l => l.date.toLocaleDateString()).reverse(),
+                datasets: [{
+                    label: 'Severity',
+                    data: logs.map(l => l.sev).reverse(),
+                    borderColor: '#4a90e2',
+                    tension: 0.3,
+                    fill: true,
+                    backgroundColor: 'rgba(74, 144, 226, 0.1)'
+                }]
+            },
+            options: { responsive: true, scales: { y: { min: 0, max: 5 } } }
+        });
+
+        const historyDiv = document.getElementById('historySummary');
+        historyDiv.innerHTML = "<h3>Last 30 Days</h3>" + logs.map(l => `
+            <div class="history-item">
+                ${l.date.toLocaleDateString()}: <strong>${l.type}</strong> (Sev: ${l.sev}) - ${l.med}
+            </div>
+        `).join('');
+    }
+
+    // 4. PDF EXPORT
+    async function exportPDF() {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        
+        const content = document.getElementById('pdfContent');
+        const canvas = await html2canvas(content);
+        const imgData = canvas.toDataURL('image/png');
+        
+        doc.text("Headache Status Report", 20, 20);
+        doc.addImage(imgData, 'PNG', 10, 30, 190, 0);
+        doc.save("Headache_Report.pdf");
+    }
+</script>
+
+</body>
+</html>
