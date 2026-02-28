@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>HeadacheTrack Pro</title>
+    
+    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <style>
+        :root { --bg: #f8f9fa; --card: #ffffff; --primary: #4a90e2; --text: #2d3436; --danger: #ff7675; }
+        @media (prefers-color-scheme: dark) {
+            :root { --bg: #121212; --card: #1e1e1e; --primary: #74b9ff; --text: #f0f0f0; }
+        }
+        body { font-family: -apple-system, system-ui; background: var(--bg); color: var(--text); margin: 0; padding-bottom: 90px; }
+        .container { padding: 20px; max-width: 500px; margin: auto; }
+        .card { background: var(--card); padding: 20px; border-radius: 20px; box-shadow: 0 10px 20px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        h2 { font-weight: 600; margin-bottom: 10px; font-size: 1.1rem; opacity: 0.8; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 10px; margin-bottom: 20px; }
+        button { border: none; padding: 15px 10px; border-radius: 12px; background: #e9ecef; color: #444; font-weight: 600; cursor: pointer; }
+        button.active { background: var(--primary); color: white; }
+        .btn-main { background: var(--primary); color: white; width: 100%; font-size: 1.1rem; padding: 18px; border-radius: 15px; margin-top: 10px; }
+        
+        /* History Styles */
+        .history-card { display: flex; justify-content: space-between; align-items: center; padding: 15px; border-bottom: 1px solid rgba(0,0,0,0.05); }
+        .history-info { flex-grow: 1; }
+        .history-actions { display: flex; gap: 8px; }
+        .btn-small { padding: 8px 12px; font-size: 0.8rem; border-radius: 8px; }
+        .btn-edit { background: #55efc4; color: #00b894; }
+        .btn-delete { background: #fab1a0; color: #d63031; }
+
+        /* Tabs */
+        .tab-bar { position: fixed; bottom: 0; width: 100%; background: var(--card); display: flex; padding-bottom: 25px; border-top: 1px solid rgba(0,0,0,0.1); }
+        .tab-item { flex: 1; text-align: center; padding: 15px; font-size: 0.85rem; opacity: 0.5; transition: 0.3s; }
+        .tab-item.active { opacity: 1; color: var(--primary); font-weight: bold; }
+        .page { display: none; }
+        .page.active { display: block; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- PAGE 1: LOGGING -->
+    <div id="logPage" class="page active">
+        <h1 id="formTitle">New Entry</h1>
+        <div class="card">
+            <h2>Type</h2>
+            <div class="grid" id="typeGrid">
+                <button onclick="setSingle('type', 'Migraine', this)">Migraine</button>
+                <button onclick="setSingle('type', 'Tension', this)">Tension</button>
+            </div>
+
+            <h2>Severity (1-5)</h2>
+            <div class="grid" id="sevGrid">
+                <button onclick="setSingle('sev', 1, this)">1</button>
+                <button onclick="setSingle('sev', 2, this)">2</button>
+                <button onclick="setSingle('sev', 3, this)">3</button>
+                <button onclick="setSingle('sev', 4, this)">4</button>
+                <button onclick="setSingle('sev', 5, this)">5</button>
+            </div>
+
+            <h2>Medication (Select multiple)</h2>
+            <div class="grid" id="medGrid">
+                <button onclick="toggleMulti('med', 'Zomig', this)">Zomig</button>
+                <button onclick="toggleMulti('med', 'Solpadeine', this)">Solpadeine</button>
+                <button onclick="toggleMulti('med', 'Paracetamol', this)">Paracetamol</button>
+                <button onclick="toggleMulti('med', 'None', this)">None</button>
+            </div>
+
+            <button id="saveBtn" class="btn-main" onclick="saveToDB()">Log Headache</button>
+            <button id="cancelBtn" class="btn-main" style="display:none; background:#ccc;" onclick="resetForm()">Cancel Edit</button>
+        </div>
+    </div>
+
+    <!-- PAGE 2: HISTORY / EDIT -->
+    <div id="historyPage" class="page">
+        <h1>History</h1>
+        <div id="historyList"></div>
+    </div>
+
+    <!-- PAGE 3: REPORT -->
+    <div id="reportPage" class="page">
+        <h1>Monthly Report</h1>
+        <div class="card" id="pdfContent">
+            <canvas id="headacheChart"></canvas>
+            <div id="reportSummary"></div>
+        </div>
+        <button class="btn-main" onclick="exportPDF()">Download PDF</button>
+    </div>
+</div>
+
+<div class="tab-bar">
+    <div class="tab-item active" onclick="showPage('logPage', this)">Log</div>
+    <div class="tab-item" onclick="showPage('historyPage', this)">History</div>
+    <div class="tab-item" onclick="showPage('reportPage', this)">Report</div>
+</div>
+
+<script>
+    const db = new Dexie("HeadacheDB");
+    db.version(1).stores({ logs: '++id, date, type, sev, med' });
+
+    let currentEntry = { id: null, type: '', sev: 0, med: [], date: null };
+
+    // SET SINGLE VALUE (Type, Severity)
+    function setSingle(field, val, btn) {
+        currentEntry[field] = val;
+        btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    }
+
+    // TOGGLE MULTIPLE VALUES (Medication)
+    function toggleMulti(field, val, btn) {
+        if (val === 'None') {
+            currentEntry[field] = ['None'];
+            btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        } else {
+            // Remove 'None' if other meds are selected
+            currentEntry[field] = currentEntry[field].filter(m => m !== 'None');
+            const noneBtn = Array.from(btn.parentElement.querySelectorAll('button')).find(b => b.innerText === 'None');
+            noneBtn.classList.remove('active');
+
+            if (currentEntry[field].includes(val)) {
+                currentEntry[field] = currentEntry[field].filter(m => m !== val);
+                btn.classList.remove('active');
+            } else {
+                currentEntry[field].push(val);
+                btn.classList.add('active');
+            }
+        }
+    }
+
+    async function saveToDB() {
+        if (!currentEntry.type || !currentEntry.sev) return alert("Select Type & Severity");
+        
+        const data = {
+            type: currentEntry.type,
+            sev: currentEntry.sev,
+            med: currentEntry.med,
+            date: currentEntry.id ? currentEntry.date : new Date() 
+        };
+
+        if (currentEntry.id) {
+            await db.logs.update(currentEntry.id, data);
+            alert("Entry Updated!");
+        } else {
+            await db.logs.add(data);
+            alert("Logged!");
+        }
+        resetForm();
+    }
+
+    function resetForm() {
+        currentEntry = { id: null, type: '', sev: 0, med: [], date: null };
+        document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        document.getElementById('saveBtn').innerText = "Log Headache";
+        document.getElementById('formTitle').innerText = "New Entry";
+        document.getElementById('cancelBtn').style.display = "none";
+        showPage('logPage', document.querySelector('.tab-item'));
+    }
+
+    async function deleteEntry(id) {
+        if(confirm("Delete this entry?")) {
+            await db.logs.delete(id);
+            renderHistory();
+        }
+    }
+
+    async function editEntry(id) {
+        const item = await db.logs.get(id);
+        currentEntry = { ...item };
+        
+        // Pre-fill UI
+        showPage('logPage', document.querySelector('.tab-item'));
+        document.getElementById('formTitle').innerText = "Edit Entry";
+        document.getElementById('saveBtn').innerText = "Update Entry";
+        document.getElementById('cancelBtn').style.display = "block";
+
+        // Activate Buttons
+        activateBtn('typeGrid', item.type);
+        activateBtn('sevGrid', item.sev);
+        item.med.forEach(m => activateBtn('medGrid', m));
+    }
+
+    function activateBtn(gridId, val) {
+        const btns = document.querySelectorAll(`#${gridId} button`);
+        btns.forEach(b => { if(b.innerText == val) b.classList.add('active'); });
+    }
+
+    async function renderHistory() {
+        const logs = await db.logs.orderBy('date').reverse().toArray();
+        const list = document.getElementById('historyList');
+        list.innerHTML = logs.map(l => `
+            <div class="card history-card">
+                <div class="history-info">
+                    <strong>${l.date.toLocaleDateString()}</strong><br>
+                    ${l.type} | Sev: ${l.sev}<br>
+                    <small>${l.med.join(', ') || 'No Meds'}</small>
+                </div>
+                <div class="history-actions">
+                    <button class="btn-small btn-edit" onclick="editEntry(${l.id})">Edit</button>
+                    <button class="btn-small btn-delete" onclick="deleteEntry(${l.id})">Del</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function showPage(pageId, tab) {
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
+        document.getElementById(pageId).classList.add('active');
+        tab.classList.add('active');
+        if(pageId === 'historyPage') renderHistory();
+        if(pageId === 'reportPage') renderReport();
+    }
+
+    // REPORTING LOGIC
+    let myChart = null;
+    async function renderReport() {
+        const logs = await db.logs.orderBy('date').reverse().limit(30).toArray();
+        const ctx = document.getElementById('headacheChart').getContext('2d');
+        if (myChart) myChart.destroy();
+        myChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: logs.map(l => l.date.toLocaleDateString()).reverse(),
+                datasets: [{ label: 'Severity', data: logs.map(l => l.sev).reverse(), borderColor: '#4a90e2', fill: false }]
+            },
+            options: { scales: { y: { min: 0, max: 5 } } }
+        });
+    }
+
+    async function exportPDF() {
+        const { jsPDF } = window.jspdf;
+        const canvas = await html2canvas(document.getElementById('pdfContent'));
+        const doc = new jsPDF();
+        doc.text("Headache Report", 20, 20);
+        doc.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 30, 180, 100);
+        doc.save("Report.pdf");
+    }
+</script>
+</body>
+</html>
