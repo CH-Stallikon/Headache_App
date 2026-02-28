@@ -1,91 +1,322 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel="apple-touch-icon" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>Headache Tracker</title>
+    <title>HeadacheTrack Pro</title>
+    
+    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
     <style>
-        :root { --bg: #f0f4f0; --card: #ffffff; --text: #2d3436; --accent: #27ae60; }
+        :root { --bg: #f4f7f6; --card: #ffffff; --primary: #2d3436; --accent: #0984e3; --tension: #e67e22; --text: #2d3436; }
         @media (prefers-color-scheme: dark) {
-            :root { --bg: #1a1a1a; --card: #2d2d2d; --text: #f0f0f0; --accent: #2ecc71; }
+            :root { --bg: #1a1a1a; --card: #2d2d2d; --primary: #f0f0f0; --accent: #74b9ff; --tension: #ffb142; --text: #f0f0f0; }
         }
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; padding-top: 60px; }
-        .card { background: var(--card); padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        h1 { font-size: 24px; text-align: center; }
-        .btn-group { display: flex; gap: 10px; margin: 10px 0; flex-wrap: wrap; }
-        button { flex: 1; padding: 15px; border: none; border-radius: 10px; background: #e0e0e0; color: #333; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        button.active { background: var(--accent); color: white; }
-        .save-btn { background: var(--accent); color: white; width: 100%; font-size: 18px; margin-top: 20px; }
-        .history { font-size: 14px; opacity: 0.8; }
+        body { font-family: -apple-system, system-ui; background: var(--bg); color: var(--text); margin: 0; padding-bottom: 100px; }
+        .container { padding: 20px; max-width: 600px; margin: auto; }
+        .card { background: var(--card); padding: 20px; border-radius: 18px; box-shadow: 0 8px 15px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        h1 { font-size: 1.5rem; }
+        h2 { font-size: 0.9rem; margin-bottom: 12px; opacity: 0.7; text-transform: uppercase; }
+        
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(85px, 1fr)); gap: 10px; margin-bottom: 20px; }
+        button { border: none; padding: 16px 10px; border-radius: 12px; background: #dfe6e9; color: #2d3436; font-weight: 700; cursor: pointer; transition: 0.2s; }
+        button.active { background: var(--accent); color: white; transform: scale(0.96); }
+        .btn-tension.active { background: var(--tension); }
+        
+        .btn-main { background: var(--accent); color: white; width: 100%; font-size: 1.1rem; padding: 18px; border-radius: 15px; border: none; font-weight: bold; margin-bottom: 10px; }
+        .history-item { display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid rgba(0,0,0,0.1); }
+        .history-btns { display: flex; gap: 10px; }
+        .edit-btn { background: #b2bec3; color: white; padding: 8px; border-radius: 8px; font-size: 12px; font-weight: bold; }
+        .del-btn { background: #fab1a0; color: #d63031; padding: 8px; border-radius: 8px; font-size: 12px; font-weight: bold; }
+
+        .tab-bar { position: fixed; bottom: 0; width: 100%; background: var(--card); display: flex; border-top: 1px solid rgba(0,0,0,0.1); padding-bottom: 30px; }
+        .tab-item { flex: 1; text-align: center; padding: 15px; font-size: 0.9rem; opacity: 0.4; font-weight: bold; cursor: pointer; }
+        .tab-item.active { opacity: 1; color: var(--accent); }
+        
+        .page { display: none; }
+        .page.active { display: block; }
+
+        /* PDF Area Hidden */
+        #pdf-report-area { position: absolute; left: -9999px; width: 800px; background: white; color: black; padding: 40px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 12px; }
     </style>
 </head>
 <body>
 
-    <h1>Headache Log</h1>
-    
-    <div class="card">
-        <h3>Type</h3>
-        <div class="btn-group" id="typeGroup">
-            <button onclick="select('type', 'Migraine')">Migraine</button>
-            <button onclick="select('type', 'Tension')">Tension</button>
-        </div>
+<div class="container">
+    <!-- TAB 1: LOG -->
+    <div id="logPage" class="page active">
+        <h1 id="logTitle">Log Headache</h1>
+        <div class="card">
+            <h2>Type</h2>
+            <div class="grid" id="typeGrid">
+                <button onclick="setVal('type', 'Migraine', this)">Migraine</button>
+                <button onclick="setVal('type', 'Tension', this)" class="btn-tension">Tension</button>
+            </div>
 
-        <h3>Severity (1-5)</h3>
-        <div class="btn-group" id="sevGroup">
-            <button onclick="select('sev', '1')">1</button>
-            <button onclick="select('sev', '2')">2</button>
-            <button onclick="select('sev', '3')">3</button>
-            <button onclick="select('sev', '4')">4</button>
-            <button onclick="select('sev', '5')">5</button>
-        </div>
+            <h2>Severity (1-5)</h2>
+            <div class="grid" id="sevGrid">
+                <button onclick="setVal('sev', 1, this)">1</button>
+                <button onclick="setVal('sev', 2, this)">2</button>
+                <button onclick="setVal('sev', 3, this)">3</button>
+                <button onclick="setVal('sev', 4, this)">4</button>
+                <button onclick="setVal('sev', 5, this)">5</button>
+            </div>
 
-        <h3>Medication</h3>
-        <div class="btn-group" id="medGroup">
-            <button onclick="select('med', 'Zomig')">Zomig</button>
-            <button onclick="select('med', 'Solpadeine')">Solpadeine</button>
-            <button onclick="select('med', 'Paracetamol')">Paracetamol</button>
-            <button onclick="select('med', 'None')">None</button>
-        </div>
+            <h2>Medication</h2>
+            <div class="grid" id="medGrid">
+                <button onclick="toggleMed('Zomig', this)">Zomig</button>
+                <button onclick="toggleMed('Solpadeine', this)">Solpadeine</button>
+                <button onclick="toggleMed('Paracetamol', this)">Paracetamol</button>
+                <button onclick="toggleMed('None', this)">None</button>
+            </div>
 
-        <button class="save-btn" onclick="saveLog()">Save Entry</button>
+            <button id="mainSaveBtn" class="btn-main" onclick="saveLog()">Save Status</button>
+            <button id="cancelEditBtn" class="btn-main" style="display:none; background:#b2bec3" onclick="resetForm()">Cancel Edit</button>
+        </div>
     </div>
 
-    <div class="card history" id="historyLog">
-        <h3>Recent History</h3>
-        <div id="historyEntries">Loading...</div>
+    <!-- TAB 2: HISTORY -->
+    <div id="historyPage" class="page">
+        <h1>History</h1>
+        <div class="card" id="historyList">Loading...</div>
     </div>
 
-    <script>
-        let currentEntry = { type: '', sev: '', med: '' };
+    <!-- TAB 3: REPORT -->
+    <div id="reportPage" class="page">
+        <h1>Analysis</h1>
+        <div class="card">
+            <h2>Severity Timeline</h2>
+            <canvas id="uiTimelineChart"></canvas>
+        </div>
+        <div class="card">
+            <h2>Monthly Totals</h2>
+            <canvas id="uiMonthlyChart"></canvas>
+        </div>
+        <button class="btn-main" onclick="generatePDF()">Export PDF Report</button>
+    </div>
+</div>
 
-        function select(category, value) {
-            currentEntry[category] = value;
-            const containerId = category === 'type' ? 'typeGroup' : (category === 'sev' ? 'sevGroup' : 'medGroup');
-            const buttons = document.querySelectorAll(`#${containerId} button`);
-            buttons.forEach(b => {
-                b.classList.toggle('active', b.innerText === value);
-            });
+<!-- HIDDEN PDF CONTENT -->
+<div id="pdf-report-area">
+    <h1>Headache Clinical Report</h1>
+    <div style="height: 300px;"><canvas id="pdfTimelineChart"></canvas></div>
+    <div style="height: 300px;"><canvas id="pdfMonthlyChart"></canvas></div>
+    <table id="pdfTable">
+        <thead><tr><th>DATE</th><th>TYPE</th><th>SEV</th><th>MEDICATION</th></tr></thead>
+        <tbody id="pdfTableBody"></tbody>
+    </table>
+</div>
+
+<!-- NAVIGATION -->
+<nav class="tab-bar">
+    <div class="tab-item active" onclick="nav('logPage', this)">Log</div>
+    <div class="tab-item" onclick="nav('historyPage', this)">History</div>
+    <div class="tab-item" onclick="nav('reportPage', this)">Report</div>
+</nav>
+
+<script>
+    // DB Config
+    const db = new Dexie("HeadacheTrackerDB_Final");
+    db.version(1).stores({ logs: '++id, date, type, sev, med' });
+
+    let entry = { id: null, type: '', sev: 0, med: [] };
+
+    // Form Logic
+    function setVal(f, v, el) {
+        entry[f] = v;
+        el.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        el.classList.add('active');
+    }
+
+    function toggleMed(v, el) {
+        if (v === 'None') {
+            entry.med = ['None'];
+            el.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+        } else {
+            entry.med = entry.med.filter(m => m !== 'None');
+            document.querySelectorAll('#medGrid button').forEach(b => { if(b.innerText==='None') b.classList.remove('active'); });
+            if (entry.med.includes(v)) {
+                entry.med = entry.med.filter(m => m !== v);
+                el.classList.remove('active');
+            } else {
+                entry.med.push(v);
+                el.classList.add('active');
+            }
         }
+    }
 
-        function saveLog() {
-            if(!currentEntry.type || !currentEntry.sev) return alert("Please select Type and Severity");
-            const logs = JSON.parse(localStorage.getItem('headacheLogs') || '[]');
-            logs.unshift({ ...currentEntry, date: new Date().toLocaleString() });
-            localStorage.setItem('headacheLogs', JSON.stringify(logs.slice(0, 10))); // Keep last 10
-            renderLogs();
+    async function saveLog() {
+        if (!entry.type || !entry.sev) return alert("Select Type and Severity");
+        const data = { ...entry, date: entry.id ? entry.date : new Date() };
+        
+        if (entry.id) {
+            await db.logs.put(data);
+            alert("Updated!");
+        } else {
+            delete data.id;
+            await db.logs.add(data);
             alert("Saved!");
         }
+        resetForm();
+        nav('historyPage', document.querySelectorAll('.tab-item')[1]);
+    }
 
-        function renderLogs() {
-            const logs = JSON.parse(localStorage.getItem('headacheLogs') || '[]');
-            const html = logs.map(l => `<div><strong>${l.date}:</strong> ${l.type} (S:${l.sev}) - ${l.med}</div>`).join('<hr>');
-            document.getElementById('historyEntries').innerHTML = html || 'No entries yet.';
+    function resetForm() {
+        entry = { id: null, type: '', sev: 0, med: [] };
+        document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        document.getElementById('logTitle').innerText = "Log Headache";
+        document.getElementById('mainSaveBtn').innerText = "Save Status";
+        document.getElementById('cancelEditBtn').style.display = "none";
+    }
+
+    // Tab Navigation
+    function nav(id, el) {
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+        el.classList.add('active');
+        
+        if (id === 'historyPage') renderHistory();
+        if (id === 'reportPage') renderAllCharts();
+    }
+
+    // History Logic
+    async function renderHistory() {
+        const logs = await db.logs.orderBy('date').reverse().toArray();
+        const container = document.getElementById('historyList');
+        if (logs.length === 0) { container.innerHTML = "<p>No entries yet.</p>"; return; }
+        
+        container.innerHTML = logs.map(l => `
+            <div class="history-item">
+                <div style="flex:1">
+                    <strong>${new Date(l.date).toLocaleDateString()}</strong> - ${l.type}<br>
+                    <small>Meds: ${l.med.join(', ')}</small>
+                </div>
+                <div style="font-weight:bold; padding:0 15px">S:${l.sev}</div>
+                <div class="history-btns">
+                    <button class="edit-btn" onclick="editEntry(${l.id})">Edit</button>
+                    <button class="del-btn" onclick="deleteEntry(${l.id})">Del</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    async function deleteEntry(id) {
+        if (confirm("Delete this entry?")) {
+            await db.logs.delete(id);
+            renderHistory();
         }
+    }
 
-        window.onload = renderLogs;
-    </script>
+    async function editEntry(id) {
+        const item = await db.logs.get(id);
+        entry = { ...item };
+        nav('logPage', document.querySelectorAll('.tab-item')[0]);
+        document.getElementById('logTitle').innerText = "Edit Entry";
+        document.getElementById('mainSaveBtn').innerText = "Update Entry";
+        document.getElementById('cancelEditBtn').style.display = "block";
+
+        highlight('typeGrid', item.type);
+        highlight('sevGrid', item.sev);
+        item.med.forEach(m => highlight('medGrid', m));
+    }
+
+    function highlight(gridId, val) {
+        document.querySelectorAll(`#${gridId} button`).forEach(b => { if(b.innerText == val) b.classList.add('active'); });
+    }
+
+    // Charts Logic
+    let charts = {};
+    async function renderAllCharts() {
+        const logs = await db.logs.orderBy('date').toArray();
+        drawTimeline(logs, 'uiTimelineChart');
+        drawMonthlySummary(logs, 'uiMonthlyChart');
+    }
+
+    function drawTimeline(logs, canvasId) {
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        if (charts[canvasId]) charts[canvasId].destroy();
+
+        // Create a unique list of dates for the X-axis
+        const labels = [...new Set(logs.map(l => new Date(l.date).toLocaleDateString()))];
+        
+        // Map severity to those specific dates to keep lines distinct
+        const migraineData = labels.map(date => {
+            const entry = logs.find(l => new Date(l.date).toLocaleDateString() === date && l.type === 'Migraine');
+            return entry ? entry.sev : null;
+        });
+        const tensionData = labels.map(date => {
+            const entry = logs.find(l => new Date(l.date).toLocaleDateString() === date && l.type === 'Tension');
+            return entry ? entry.sev : null;
+        });
+
+        charts[canvasId] = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    { label: 'Migraine', data: migraineData, borderColor: '#0984e3', spanGaps: true, tension: 0.2 },
+                    { label: 'Tension', data: tensionData, borderColor: '#e67e22', spanGaps: true, tension: 0.2 }
+                ]
+            },
+            options: {
+                scales: {
+                    y: { min: 0, max: 5, ticks: { stepSize: 1, precision: 0 } }
+                }
+            }
+        });
+    }
+
+    function drawMonthlySummary(logs, canvasId) {
+        const summary = {};
+        logs.forEach(l => {
+            const m = new Date(l.date).toLocaleString('default', { month: 'short', year: 'numeric' });
+            if (!summary[m]) summary[m] = { Migraine: 0, Tension: 0 };
+            summary[m][l.type]++;
+        });
+
+        const labels = Object.keys(summary);
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        if (charts[canvasId]) charts[canvasId].destroy();
+        charts[canvasId] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    { label: 'Migraines', data: labels.map(l => summary[l].Migraine), backgroundColor: '#0984e3' },
+                    { label: 'Tension', data: labels.map(l => summary[l].Tension), backgroundColor: '#e67e22' }
+                ]
+            },
+            options: {
+                scales: { y: { ticks: { stepSize: 1, precision: 0 } } }
+            }
+        });
+    }
+
+    async function generatePDF() {
+        const logs = await db.logs.orderBy('date').reverse().toArray();
+        document.getElementById('pdfTableBody').innerHTML = logs.map(l => `
+            <tr><td>${new Date(l.date).toLocaleDateString()}</td><td>${l.type}</td><td>${l.sev}</td><td>${l.med.join(', ')}</td></tr>
+        `).join('');
+        
+        drawTimeline(logs, 'pdfTimelineChart');
+        drawMonthlySummary(logs, 'pdfMonthlyChart');
+
+        const canvas = await html2canvas(document.getElementById('pdf-report-area'), { scale: 2 });
+        const img = canvas.toDataURL('image/png');
+        const doc = new jspdf.jsPDF('p', 'mm', 'a4');
+        doc.addImage(img, 'PNG', 0, 0, 210, (canvas.height * 210) / canvas.width);
+        doc.save("Headache_Report.pdf");
+    }
+</script>
 </body>
 </html>
