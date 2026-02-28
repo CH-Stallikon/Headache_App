@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Headache Tracker</title>
+    <style>
+        :root { --bg: #f0f4f0; --card: #ffffff; --text: #2d3436; --accent: #27ae60; }
+        @media (prefers-color-scheme: dark) {
+            :root { --bg: #1a1a1a; --card: #2d2d2d; --text: #f0f0f0; --accent: #2ecc71; }
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; padding-top: 60px; }
+        .card { background: var(--card); padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h1 { font-size: 24px; text-align: center; }
+        .btn-group { display: flex; gap: 10px; margin: 10px 0; flex-wrap: wrap; }
+        button { flex: 1; padding: 15px; border: none; border-radius: 10px; background: #e0e0e0; color: #333; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        button.active { background: var(--accent); color: white; }
+        .save-btn { background: var(--accent); color: white; width: 100%; font-size: 18px; margin-top: 20px; }
+        .history { font-size: 14px; opacity: 0.8; }
+    </style>
+</head>
+<body>
+
+    <h1>Headache Log</h1>
+    
+    <div class="card">
+        <h3>Type</h3>
+        <div class="btn-group" id="typeGroup">
+            <button onclick="select('type', 'Migraine')">Migraine</button>
+            <button onclick="select('type', 'Tension')">Tension</button>
+        </div>
+
+        <h3>Severity (1-5)</h3>
+        <div class="btn-group" id="sevGroup">
+            <button onclick="select('sev', '1')">1</button>
+            <button onclick="select('sev', '2')">2</button>
+            <button onclick="select('sev', '3')">3</button>
+            <button onclick="select('sev', '4')">4</button>
+            <button onclick="select('sev', '5')">5</button>
+        </div>
+
+        <h3>Medication</h3>
+        <div class="btn-group" id="medGroup">
+            <button onclick="select('med', 'Zomig')">Zomig</button>
+            <button onclick="select('med', 'Solpadeine')">Solpadeine</button>
+            <button onclick="select('med', 'Paracetamol')">Paracetamol</button>
+            <button onclick="select('med', 'None')">None</button>
+        </div>
+
+        <button class="save-btn" onclick="saveLog()">Save Entry</button>
+    </div>
+
+    <div class="card history" id="historyLog">
+        <h3>Recent History</h3>
+        <div id="historyEntries">Loading...</div>
+    </div>
+
+    <script>
+        let currentEntry = { type: '', sev: '', med: '' };
+
+        function select(category, value) {
+            currentEntry[category] = value;
+            const containerId = category === 'type' ? 'typeGroup' : (category === 'sev' ? 'sevGroup' : 'medGroup');
+            const buttons = document.querySelectorAll(`#${containerId} button`);
+            buttons.forEach(b => {
+                b.classList.toggle('active', b.innerText === value);
+            });
+        }
+
+        function saveLog() {
+            if(!currentEntry.type || !currentEntry.sev) return alert("Please select Type and Severity");
+            const logs = JSON.parse(localStorage.getItem('headacheLogs') || '[]');
+            logs.unshift({ ...currentEntry, date: new Date().toLocaleString() });
+            localStorage.setItem('headacheLogs', JSON.stringify(logs.slice(0, 10))); // Keep last 10
+            renderLogs();
+            alert("Saved!");
+        }
+
+        function renderLogs() {
+            const logs = JSON.parse(localStorage.getItem('headacheLogs') || '[]');
+            const html = logs.map(l => `<div><strong>${l.date}:</strong> ${l.type} (S:${l.sev}) - ${l.med}</div>`).join('<hr>');
+            document.getElementById('historyEntries').innerHTML = html || 'No entries yet.';
+        }
+
+        window.onload = renderLogs;
+    </script>
+</body>
+</html>
